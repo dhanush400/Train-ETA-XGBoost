@@ -1,15 +1,10 @@
 
-"""
-RailPulse AI
-AI-Based Dynamic Train ETA Prediction and Delay Forecasting
-Using XGBoost Algorithm
-"""
-
+import os
+import sqlite3
+import json
 from pathlib import Path
 from datetime import datetime, timedelta
 from functools import wraps
-import sqlite3
-import json
 
 import joblib
 import pandas as pd
@@ -20,34 +15,138 @@ from flask import (
     request,
     redirect,
     url_for,
-    session
+    session,
 )
 
-from werkzeug.security import (
-    generate_password_hash,
-    check_password_hash
+from werkzeug.security import generate_password_hash, check_password_hash
+
+
+# --------------------------------------------------
+# 1. PROJECT PATHS AND FLASK CONFIGURATION
+# --------------------------------------------------
+
+BASE_DIR = Path(__file__).resolve().parent
+
+TEMPLATE_DIR = BASE_DIR / "templates"
+STATIC_DIR = BASE_DIR / "static"
+MODEL_DIR = BASE_DIR / "models"
+
+DB_PATH = Path(os.environ.get("DATABASE_PATH", str(BASE_DIR / "users.db")))
+
+app = Flask(
+    __name__,
+    template_folder=str(TEMPLATE_DIR),
+    static_folder=str(STATIC_DIR),
+)
+
+app.secret_key = os.environ.get(
+    "SECRET_KEY",
+    "railpulse-local-development-key"
+)
+
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = (
+    os.environ.get("RENDER") is not None
 )
 
 
-# ==================================================
-# 1. PROJECT CONFIGURATION
-# ==================================================
+# --------------------------------------------------
+# 2. DATABASE INITIALIZATION
+# --------------------------------------------------
 
-ROOT = Path(__file__).resolve().parent
+def get_db_connection():
+    """Create a connection to the SQLite database."""
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-DB_PATH = ROOT / "users.db"
-MODEL_PATH = ROOT / "models" / "xgboost_model.pkl"
-METRICS_PATH = ROOT / "models" / "metrics.json"
+    connection = sqlite3.connect(DB_PATH, timeout=30)
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA busy_timeout = 30000")
 
-app = Flask(__name__)
-
-app.secret_key = "RailPulse_AI_Secret_Key_2026"
+    return connection
 
 
-# ==================================================
-# 2. MODEL CONFIGURATION
-# ==================================================
+def initialize_database():
+    """Create the users table if it does not exist."""
 
+    connection = get_db_connection()
+
+    try:
+        connection.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                identifier TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                password TEXT
+            )
+        """)
+
+        # Add missing columns if an older users table exists.
+        columns = {
+            row["name"]
+            for row in connection.execute(
+                "PRAGMA table_info(users)"
+            ).fetchall()
+        }
+
+        if "identifier" not in columns:
+            connection.execute(
+                "ALTER TABLE users ADD COLUMN identifier TEXT"
+            )
+
+        if "password_hash" not in columns:
+            connection.execute(
+                "ALTER TABLE users ADD COLUMN password_hash TEXT"
+            )
+
+        if "password" not in columns:
+            connection.execute(
+                "ALTER TABLE users ADD COLUMN password TEXT"
+            )
+
+        connection.commit()
+
+    finally:
+        connection.close()
+
+
+# Create the database table when the application starts.
+initialize_database()
+
+
+# --------------------------------------------------
+# 3. LOAD XGBOOST MODEL AND METRICS
+# --------------------------------------------------
+
+MODEL_PATH = MODEL_DIR / "xgboost_model.pkl"
+METRICS_PATH = MODEL_DIR / "metrics.json"
+
+model = None
+model_error = None
+metrics = {}
+
+try:
+    if MODEL_PATH.exists():
+        model = joblib.load(MODEL_PATH)
+    else:
+        model_error = (
+            "Model file not found: models/xgboost_model.pkl"
+        )
+
+except Exception as exc:
+    model_error = f"Could not load the prediction model: {exc}"
+
+
+try:
+    if METRICS_PATH.exists():
+        with open(METRICS_PATH, "r", encoding="utf-8") as file:
+            metrics = json.load(file)
+
+except Exception:
+    metrics = {}
+
+
+# Feature order must match the model training columns.
 FEATURE_COLUMNS = [
     "distance_km",
     "scheduled_hour",
@@ -57,127 +156,135 @@ FEATURE_COLUMNS = [
     "previous_delay_min",
     "weather_severity",
     "congestion_index",
-    "train_type_code"
+    "train_type_code",
 ]
 
-model = None
-metrics = {}
 
-
-# ==================================================
-# 3. DATABASE INITIALIZATION
-# ==================================================
-
-def get_connection():
-    connection = sqlite3.connect(DB_PATH)
-    connection.row_factory = sqlite3.Row
-    return connection
-
-
-def init_db():
-    """Create users table if it does not exist."""
-
-    connection = get_connection()
-
-    connection.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            identifier TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            password TEXT
-        )
-    """)
-
-    connection.commit()
-    connection.close()
-
-
-def update_database():
-    """Ensure the existing database has the required columns."""
-
-    connection = get_connection()
-
-    columns = [
-        row["name"]
-        for row in connection.execute(
-            "PRAGMA table_info(users)"
-        ).fetchall()
-    ]
-
-    if "identifier" not in columns:
-        connection.execute(
-            "ALTER TABLE users ADD COLUMN identifier TEXT"
-        )
-
-    if "password_hash" not in columns:
-        connection.execute(
-            "ALTER TABLE users ADD COLUMN password_hash TEXT"
-        )
-
-    if "password" not in columns:
-        connection.execute(
-            "ALTER TABLE users ADD COLUMN password TEXT"
-        )
-
-    connection.commit()
-    connection.close()
-
-
-# ==================================================
-# 4. VALIDATION FUNCTIONS
-# ==================================================
-
-def valid_identifier(identifier):
-    """Check email address or phone number."""
-
-    identifier = identifier.strip()
-
-    if "@" in identifier:
-        parts = identifier.split("@")
-
-        return (
-            len(parts) == 2
-            and bool(parts[0])
-            and "." in parts[1]
-            and bool(parts[1].split(".")[0])
-        )
-
-    phone = (
-        identifier
-        .replace("+", "")
-        .replace("-", "")
-        .replace(" ", "")
-    )
-
-    return phone.isdigit() and 10 <= len(phone) <= 15
-
-
-def valid_password(password):
-    """Require at least seven alphanumeric characters."""
-
-    return len(password) >= 7 and password.isalnum()
-
-
-# ==================================================
-# 5. LOGIN PROTECTION
-# ==================================================
+# --------------------------------------------------
+# 4. LOGIN PROTECTION
+# --------------------------------------------------
 
 def login_required(function):
+    """Prevent users from accessing the dashboard without login."""
 
     @wraps(function)
-    def wrapper(*args, **kwargs):
+    def decorated_function(*args, **kwargs):
 
         if "user_id" not in session:
             return redirect(url_for("login"))
 
         return function(*args, **kwargs)
 
-    return wrapper
+    return decorated_function
 
 
-# ==================================================
-# 6. REGISTRATION
-# ==================================================
+# --------------------------------------------------
+# 5. LOGIN PAGE
+# --------------------------------------------------
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+
+    if "user_id" in session:
+        return redirect(url_for("home"))
+
+    error = None
+
+    if request.method == "POST":
+
+        identifier = request.form.get(
+            "identifier", ""
+        ).strip().lower()
+
+        password = request.form.get(
+            "password", ""
+        )
+
+        if not identifier or not password:
+            error = "Please enter your email and password."
+
+        else:
+            connection = get_db_connection()
+
+            try:
+                user = connection.execute(
+                    """
+                    SELECT id, identifier, password_hash, password
+                    FROM users
+                    WHERE LOWER(identifier) = ?
+                    """,
+                    (identifier,)
+                ).fetchone()
+
+            finally:
+                connection.close()
+
+            if user is None:
+                error = "Account not found. Please register first."
+
+            else:
+                stored_hash = user["password_hash"] or ""
+                stored_password = user["password"] or ""
+
+                password_valid = False
+
+                if stored_hash:
+                    try:
+                        password_valid = check_password_hash(
+                            stored_hash, password
+                        )
+                    except (ValueError, TypeError):
+                        password_valid = False
+
+                # Backward compatibility with older plaintext records.
+                if not password_valid and stored_password:
+                    password_valid = (
+                        stored_password == password
+                    )
+
+                if password_valid:
+
+                    session.clear()
+
+                    session["user_id"] = user["id"]
+                    session["identifier"] = user["identifier"]
+
+                    # Upgrade an old plaintext password to a hash.
+                    if stored_password:
+                        connection = get_db_connection()
+
+                        try:
+                            connection.execute(
+                                """
+                                UPDATE users
+                                SET password_hash = ?, password = NULL
+                                WHERE id = ?
+                                """,
+                                (
+                                    generate_password_hash(password),
+                                    user["id"]
+                                )
+                            )
+                            connection.commit()
+
+                        finally:
+                            connection.close()
+
+                    return redirect(url_for("home"))
+
+                else:
+                    error = "Incorrect password. Please try again."
+
+    return render_template(
+        "auth.html",
+        error=error,
+        mode="login"
+    )
+
+
+# --------------------------------------------------
+# 6. REGISTRATION PAGE
+# --------------------------------------------------
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
@@ -185,11 +292,13 @@ def register():
     if "user_id" in session:
         return redirect(url_for("home"))
 
+    error = None
+
     if request.method == "POST":
 
         identifier = request.form.get(
             "identifier", ""
-        ).strip()
+        ).strip().lower()
 
         password = request.form.get(
             "password", ""
@@ -199,297 +308,71 @@ def register():
             "confirm_password", ""
         )
 
-        if not valid_identifier(identifier):
-            return render_template(
-                "auth.html",
-                mode="register",
-                error="Enter a valid email address or phone number."
-            )
+        if not identifier or not password or not confirm_password:
+            error = "Please fill in all the fields."
 
-        if not valid_password(password):
-            return render_template(
-                "auth.html",
-                mode="register",
-                error="Password must contain at least 7 letters or digits."
-            )
+        elif password != confirm_password:
+            error = "Passwords do not match."
 
-        if password != confirm_password:
-            return render_template(
-                "auth.html",
-                mode="register",
-                error="Passwords do not match."
-            )
+        elif len(password) < 7:
+            error = "Password must contain at least 7 characters."
 
-        hashed_password = generate_password_hash(password)
+        else:
+            connection = get_db_connection()
 
-        connection = get_connection()
-
-        try:
-
-            columns = [
-                row["name"]
-                for row in connection.execute(
-                    "PRAGMA table_info(users)"
-                ).fetchall()
-            ]
-
-            # Save to both password columns when available.
-            # password_hash is the main authentication column.
-
-            if "password_hash" in columns and "password" in columns:
-
-                connection.execute(
+            try:
+                existing_user = connection.execute(
                     """
-                    INSERT INTO users
-                    (identifier, password_hash, password)
-                    VALUES (?, ?, ?)
+                    SELECT id FROM users
+                    WHERE LOWER(identifier) = ?
                     """,
-                    (
-                        identifier,
-                        hashed_password,
-                        hashed_password
+                    (identifier,)
+                ).fetchone()
+
+                if existing_user:
+                    error = "This account already exists. Please login."
+
+                else:
+                    password_hash = generate_password_hash(password)
+
+                    cursor = connection.execute(
+                        """
+                        INSERT INTO users
+                        (identifier, password_hash, password)
+                        VALUES (?, ?, NULL)
+                        """,
+                        (identifier, password_hash)
                     )
-                )
 
-            elif "password_hash" in columns:
+                    connection.commit()
 
-                connection.execute(
-                    """
-                    INSERT INTO users
-                    (identifier, password_hash)
-                    VALUES (?, ?)
-                    """,
-                    (identifier, hashed_password)
-                )
+                    # Automatically log the user in after registration.
+                    session.clear()
+                    session["user_id"] = cursor.lastrowid
+                    session["identifier"] = identifier
 
-            else:
+                    return redirect(url_for("home"))
 
-                connection.execute(
-                    """
-                    INSERT INTO users
-                    (identifier, password)
-                    VALUES (?, ?)
-                    """,
-                    (identifier, hashed_password)
-                )
+            except sqlite3.IntegrityError:
+                error = "This account already exists. Please login."
 
-            connection.commit()
+            except sqlite3.Error:
+                app.logger.exception("Registration database error")
+                error = "Registration failed because of a database error."
 
-            user = connection.execute(
-                """
-                SELECT id, identifier
-                FROM users
-                WHERE identifier = ?
-                """,
-                (identifier,)
-            ).fetchone()
-
-            if user is None:
-                raise sqlite3.Error("Account could not be retrieved.")
-
-            # Create login session after successful registration.
-
-            session.clear()
-            session["user_id"] = user["id"]
-            session["identifier"] = user["identifier"]
-
-            return redirect(url_for("home"))
-
-        except sqlite3.IntegrityError:
-
-            return render_template(
-                "auth.html",
-                mode="register",
-                error="This email or phone number is already registered."
-            )
-
-        except sqlite3.Error:
-
-            app.logger.exception("Registration database error")
-
-            return render_template(
-                "auth.html",
-                mode="register",
-                error="Database error. Please try again."
-            )
-
-        finally:
-            connection.close()
+            finally:
+                connection.close()
 
     return render_template(
         "auth.html",
+        error=error,
         mode="register"
     )
 
 
-# ==================================================
-# 7. LOGIN
-# ==================================================
-
-@app.route("/login", methods=["GET", "POST"])
-def login():
-
-    if "user_id" in session:
-        return redirect(url_for("home"))
-
-    if request.method == "POST":
-
-        identifier = request.form.get(
-            "identifier", ""
-        ).strip()
-
-        password = request.form.get(
-            "password", ""
-        )
-
-        connection = get_connection()
-
-        try:
-
-            user = connection.execute(
-                """
-                SELECT *
-                FROM users
-                WHERE identifier = ?
-                """,
-                (identifier,)
-            ).fetchone()
-
-            stored_password = None
-
-            if user:
-
-                # Prefer password_hash, then use password
-                # for compatibility with older database records.
-
-                if (
-                    "password_hash" in user.keys()
-                    and user["password_hash"]
-                ):
-                    stored_password = user["password_hash"]
-
-                elif (
-                    "password" in user.keys()
-                    and user["password"]
-                ):
-                    stored_password = user["password"]
-
-        except sqlite3.Error:
-
-            app.logger.exception("Login database error")
-
-            return render_template(
-                "auth.html",
-                mode="login",
-                error="Database error. Please try again."
-            )
-
-        finally:
-            connection.close()
-
-        if user and stored_password:
-
-            try:
-                password_matches = check_password_hash(
-                    stored_password,
-                    password
-                )
-            except (ValueError, TypeError):
-                password_matches = False
-
-            if password_matches:
-
-                session.clear()
-
-                session["user_id"] = user["id"]
-                session["identifier"] = user["identifier"]
-
-                session.permanent = True
-
-                return redirect(url_for("home"))
-
-        return render_template(
-            "auth.html",
-            mode="login",
-            error="Invalid email, phone number or password."
-        )
-
-    return render_template(
-        "auth.html",
-        mode="login"
-    )
-
-
-# ==================================================
-# 8. LOGOUT
-# ==================================================
-
-@app.route("/logout")
-def logout():
-
-    session.clear()
-
-    return redirect(url_for("login"))
-
-
-# ==================================================
-# 9. LOAD XGBOOST MODEL
-# ==================================================
-
-def load_model():
-
-    global model, metrics
-
-    if not MODEL_PATH.exists():
-
-        app.logger.error(
-            "Model file not found: %s",
-            MODEL_PATH
-        )
-
-        model = None
-        return
-
-    try:
-
-        model = joblib.load(MODEL_PATH)
-
-        app.logger.info(
-            "XGBoost model loaded successfully."
-        )
-
-    except Exception:
-
-        app.logger.exception(
-            "Error loading XGBoost model."
-        )
-
-        model = None
-
-    if METRICS_PATH.exists():
-
-        try:
-
-            with open(
-                METRICS_PATH,
-                "r",
-                encoding="utf-8"
-            ) as file:
-
-                metrics = json.load(file)
-
-        except (OSError, json.JSONDecodeError):
-
-            app.logger.exception(
-                "Could not load model metrics."
-            )
-
-            metrics = {}
-
-
-# ==================================================
-# 10. TRAIN ETA DASHBOARD
-# ==================================================
+# --------------------------------------------------
+# 7. DASHBOARD AND TRAIN ETA PREDICTION
+# --------------------------------------------------
 
 @app.route("/", methods=["GET", "POST"])
 @login_required
@@ -500,189 +383,164 @@ def home():
 
     if request.method == "POST":
 
-        if model is None:
+        try:
+            if model is None:
+                raise RuntimeError(
+                    model_error or "Prediction model is unavailable."
+                )
 
-            error = (
-                "XGBoost model is not loaded. "
-                "Check the models folder."
+            train_number = request.form.get(
+                "train_number", ""
+            ).strip()
+
+            scheduled_input = request.form.get(
+                "scheduled_arrival", ""
+            ).strip()
+
+            if not train_number:
+                raise ValueError("Please enter the train number.")
+
+            if not scheduled_input:
+                raise ValueError(
+                    "Please enter the scheduled arrival date and time."
+                )
+
+            # Accept datetime-local input and common date formats.
+            try:
+                scheduled_arrival = datetime.fromisoformat(
+                    scheduled_input
+                )
+            except ValueError:
+                scheduled_arrival = datetime.strptime(
+                    scheduled_input,
+                    "%Y-%m-%d %H:%M"
+                )
+
+            distance_km = float(request.form["distance_km"])
+            remaining_stops = int(request.form["remaining_stops"])
+            previous_delay_min = float(
+                request.form["previous_delay_min"]
+            )
+            weather_severity = float(
+                request.form["weather_severity"]
+            )
+            congestion_index = float(
+                request.form["congestion_index"]
+            )
+            train_type_code = int(
+                request.form["train_type_code"]
             )
 
-        else:
-
-            try:
-
-                train_number = request.form.get(
-                    "train_number", ""
-                ).strip()
-
-                scheduled_text = request.form.get(
-                    "scheduled_arrival", ""
+            if distance_km < 0 or remaining_stops < 0:
+                raise ValueError(
+                    "Distance and remaining stops cannot be negative."
                 )
 
-                distance_km = float(
-                    request.form.get("distance_km", 0)
+            # Derive calendar features from scheduled arrival.
+            features = {
+                "distance_km": distance_km,
+                "scheduled_hour": scheduled_arrival.hour,
+                "day_of_week": scheduled_arrival.weekday(),
+                "month": scheduled_arrival.month,
+                "remaining_stops": remaining_stops,
+                "previous_delay_min": previous_delay_min,
+                "weather_severity": weather_severity,
+                "congestion_index": congestion_index,
+                "train_type_code": train_type_code,
+            }
+
+            input_data = pd.DataFrame(
+                [features],
+                columns=FEATURE_COLUMNS
+            )
+
+            prediction = model.predict(input_data)
+            predicted_delay = float(prediction[0])
+
+            if not pd.notna(predicted_delay):
+                raise ValueError(
+                    "The model returned an invalid prediction."
                 )
 
-                remaining_stops = int(
-                    request.form.get("remaining_stops", 0)
-                )
+            predicted_delay = round(predicted_delay, 2)
 
-                previous_delay_min = float(
-                    request.form.get("previous_delay_min", 0)
-                )
+            estimated_arrival = (
+                scheduled_arrival
+                + timedelta(minutes=predicted_delay)
+            )
 
-                weather_severity = float(
-                    request.form.get("weather_severity", 0)
-                )
+            if predicted_delay <= 5:
+                status = "On Time"
+            else:
+                status = "Delayed"
 
-                congestion_index = float(
-                    request.form.get("congestion_index", 0)
-                )
+            result = {
+                "train_number": train_number,
+                "scheduled_arrival": scheduled_arrival.strftime(
+                    "%d-%m-%Y %I:%M %p"
+                ),
+                "predicted_delay": predicted_delay,
+                "estimated_arrival": estimated_arrival.strftime(
+                    "%d-%m-%Y %I:%M %p"
+                ),
+                "status": status,
+            }
 
-                train_type_code = int(
-                    request.form.get("train_type_code", 0)
-                )
+        except (ValueError, KeyError, TypeError) as exc:
+            error = str(exc) or "Please check the entered values."
 
-                if not train_number:
-                    raise ValueError("Enter the train number.")
-
-                if distance_km <= 0:
-                    raise ValueError(
-                        "Distance must be greater than zero."
-                    )
-
-                if remaining_stops < 0:
-                    raise ValueError(
-                        "Remaining stops cannot be negative."
-                    )
-
-                if previous_delay_min < 0:
-                    raise ValueError(
-                        "Previous delay cannot be negative."
-                    )
-
-                if not 0 <= weather_severity <= 5:
-                    raise ValueError(
-                        "Weather severity must be between 0 and 5."
-                    )
-
-                if not 0 <= congestion_index <= 1:
-                    raise ValueError(
-                        "Congestion index must be between 0 and 1."
-                    )
-
-                if train_type_code < 0:
-                    raise ValueError(
-                        "Train type code cannot be negative."
-                    )
-
-                scheduled_arrival = datetime.strptime(
-                    scheduled_text,
-                    "%Y-%m-%dT%H:%M"
-                )
-
-                input_data = pd.DataFrame(
-                    [{
-                        "distance_km": distance_km,
-                        "scheduled_hour": scheduled_arrival.hour,
-                        "day_of_week": scheduled_arrival.weekday(),
-                        "month": scheduled_arrival.month,
-                        "remaining_stops": remaining_stops,
-                        "previous_delay_min": previous_delay_min,
-                        "weather_severity": weather_severity,
-                        "congestion_index": congestion_index,
-                        "train_type_code": train_type_code
-                    }],
-                    columns=FEATURE_COLUMNS
-                )
-
-                predicted_delay = float(
-                    model.predict(input_data)[0]
-                )
-
-                predicted_delay = max(
-                    0,
-                    predicted_delay
-                )
-
-                estimated_arrival = (
-                    scheduled_arrival
-                    + timedelta(minutes=predicted_delay)
-                )
-
-                if predicted_delay <= 5:
-                    status = "On Time"
-
-                elif predicted_delay <= 30:
-                    status = "Slightly Delayed"
-
-                else:
-                    status = "Highly Delayed"
-
-                result = {
-                    "train_number": train_number,
-                    "scheduled_arrival": (
-                        scheduled_arrival.strftime(
-                            "%d-%m-%Y %I:%M %p"
-                        )
-                    ),
-                    "predicted_delay": round(
-                        predicted_delay, 2
-                    ),
-                    "estimated_arrival": (
-                        estimated_arrival.strftime(
-                            "%d-%m-%Y %I:%M %p"
-                        )
-                    ),
-                    "status": status
-                }
-
-            except ValueError as exception:
-
-                error = str(exception)
-
-            except Exception:
-
-                app.logger.exception(
-                    "Train ETA prediction error."
-                )
-
-                error = (
-                    "Prediction failed. "
-                    "Please check your inputs and model."
-                )
+        except Exception:
+            app.logger.exception("Train ETA prediction failed")
+            error = (
+                "Prediction failed. Check the model file and input values."
+            )
 
     return render_template(
         "index.html",
         result=result,
-        error=error,
         metrics=metrics,
-        username=session.get("identifier"),
-        current_year=datetime.now().year
+        error=error,
+        username=session.get("identifier")
     )
 
 
-# ==================================================
-# 11. APPLICATION STARTUP
-# ==================================================
+# --------------------------------------------------
+# 8. LOGOUT
+# --------------------------------------------------
+
+@app.route("/logout")
+def logout():
+
+    session.clear()
+
+    return redirect(url_for("login"))
+
+
+# --------------------------------------------------
+# 9. HEALTH CHECK
+# --------------------------------------------------
+
+@app.route("/health")
+def health():
+
+    return {
+        "status": "running",
+        "database": "initialized",
+        "model_loaded": model is not None,
+        "model_error": model_error,
+    }
+
+
+# --------------------------------------------------
+# 10. APPLICATION START
+# --------------------------------------------------
 
 if __name__ == "__main__":
 
-    init_db()
-    update_database()
-    load_model()
-
-    print("\n====================================")
-    print("         RAILPULSE AI")
-    print("====================================")
-    print("Login:     http://127.0.0.1:5001/login")
-    print("Register:  http://127.0.0.1:5001/register")
-    print("Dashboard: http://127.0.0.1:5001/")
-    print("====================================\n")
+    port = int(os.environ.get("PORT", 5001))
 
     app.run(
-        host="127.0.0.1",
-        port=5001,
-        debug=False,
-        use_reloader=False
+        host="0.0.0.0",
+        port=port,
+        debug=False
     )
