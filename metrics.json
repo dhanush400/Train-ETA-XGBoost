@@ -1,0 +1,8 @@
+{
+  "mae_minutes": 4.152,
+  "rmse_minutes": 5.245,
+  "r2_score": 0.8205,
+  "test_rows": 1000,
+  "dataset_rows": 5000,
+  "dataset_type": "check dataset provenance"
+}

@@ -1,0 +1,786 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RailPulse | AI Train ETA</title>
+
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+:root {
+  --navy:#10233f;
+  --blue:#3478f6;
+  --cyan:#29b8c7;
+  --ink:#1b2b43;
+  --muted:#718096;
+  --line:#e5ebf3;
+  --bg:#f4f7fb;
+  --green:#16865b;
+  --shadow:0 12px 35px rgba(22,48,83,.07);
+}
+
+* { box-sizing:border-box; }
+
+body {
+  margin:0;
+  background:var(--bg);
+  color:var(--ink);
+  font-family:"DM Sans",sans-serif;
+}
+
+.layout {
+  min-height:100vh;
+  display:grid;
+  grid-template-columns:250px 1fr;
+}
+
+aside {
+  background:linear-gradient(180deg,#10233f,#0b1a30);
+  color:white;
+  padding:28px 18px;
+  display:flex;
+  flex-direction:column;
+}
+
+.brand {
+  display:flex;
+  align-items:center;
+  gap:12px;
+  padding:0 10px 34px;
+}
+
+.logo {
+  width:42px;
+  height:42px;
+  border-radius:13px;
+  display:grid;
+  place-items:center;
+  background:linear-gradient(135deg,#3b82f6,#27bdc7);
+  font-size:22px;
+}
+
+.brand-name {
+  font:800 17px "Manrope",sans-serif;
+}
+
+.brand-sub {
+  color:#9fb2ca;
+  font-size:10px;
+  letter-spacing:1.6px;
+  margin-top:3px;
+}
+
+.nav-label {
+  color:#8196b2;
+  font-size:10px;
+  font-weight:700;
+  letter-spacing:1.5px;
+  padding:0 12px 12px;
+}
+
+.nav-item {
+  padding:12px 13px;
+  margin:3px 0;
+  border-radius:10px;
+  color:#c1cee0;
+  font-size:13px;
+}
+
+.nav-item.active {
+  background:#ffffff18;
+  color:white;
+  border-left:3px solid var(--cyan);
+}
+
+.side-note {
+  margin-top:auto;
+  border:1px solid #ffffff20;
+  background:#ffffff0c;
+  padding:15px;
+  border-radius:13px;
+}
+
+.side-note strong {
+  font-size:12px;
+}
+
+.side-note p {
+  color:#a9bad0;
+  font-size:11px;
+  line-height:1.6;
+}
+
+.logout {
+  display:block;
+  color:white;
+  text-decoration:none;
+  padding:12px;
+  margin-top:15px;
+  font-size:13px;
+}
+
+main {
+  min-width:0;
+  padding:27px 34px 40px;
+}
+
+.topbar {
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:16px;
+  margin-bottom:28px;
+}
+
+.eyebrow {
+  color:var(--blue);
+  font-size:10px;
+  font-weight:700;
+  letter-spacing:1.7px;
+  text-transform:uppercase;
+}
+
+h1 {
+  font:800 clamp(22px,3vw,29px) "Manrope",sans-serif;
+  margin:5px 0;
+}
+
+.subtitle {
+  color:var(--muted);
+  font-size:13px;
+}
+
+.profile {
+  background:white;
+  border:1px solid var(--line);
+  border-radius:30px;
+  padding:10px 16px;
+  font-size:12px;
+}
+
+.status-strip {
+  background:#eaf7f3;
+  color:#28775b;
+  border:1px solid #d4eee4;
+  padding:12px 14px;
+  border-radius:10px;
+  font-size:12px;
+  margin-bottom:22px;
+}
+
+.stats {
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:15px;
+  margin-bottom:21px;
+}
+
+.stat {
+  background:white;
+  border:1px solid var(--line);
+  border-radius:14px;
+  padding:18px;
+  box-shadow:var(--shadow);
+}
+
+.stat-label {
+  color:var(--muted);
+  font-size:11px;
+}
+
+.stat-value {
+  font:800 23px "Manrope",sans-serif;
+  margin-top:10px;
+}
+
+.stat-foot {
+  color:#8997a9;
+  font-size:10px;
+  margin-top:4px;
+}
+
+.content-grid {
+  display:grid;
+  grid-template-columns:minmax(0,1.2fr) minmax(300px,.8fr);
+  gap:18px;
+  align-items:start;
+}
+
+.card {
+  background:white;
+  border:1px solid var(--line);
+  border-radius:15px;
+  box-shadow:var(--shadow);
+  overflow:hidden;
+}
+
+.card-head {
+  padding:19px 21px 15px;
+  border-bottom:1px solid #edf1f6;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+}
+
+.card-title {
+  font:700 15px "Manrope",sans-serif;
+}
+
+.card-desc {
+  font-size:11px;
+  color:#8794a6;
+  margin-top:4px;
+}
+
+.pill {
+  border-radius:30px;
+  background:#edf4ff;
+  color:#3673d9;
+  padding:6px 10px;
+  font-size:10px;
+  font-weight:700;
+}
+
+form {
+  padding:19px 21px 21px;
+}
+
+.section-label {
+  color:#8391a4;
+  font-size:10px;
+  font-weight:700;
+  letter-spacing:1.25px;
+  margin:2px 0 12px;
+}
+
+.fields {
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:13px 14px;
+}
+
+.field.full {
+  grid-column:1/-1;
+}
+
+label {
+  display:block;
+  color:#45566d;
+  font-size:11px;
+  font-weight:600;
+  margin-bottom:6px;
+}
+
+input,select {
+  width:100%;
+  height:41px;
+  border:1px solid #dfe6ef;
+  border-radius:8px;
+  padding:0 11px;
+  color:#253953;
+  background:#fbfcfe;
+  outline:none;
+  font:12px "DM Sans",sans-serif;
+}
+
+input:focus,select:focus {
+  border-color:#6b9cf4;
+}
+
+.submit {
+  width:100%;
+  height:45px;
+  margin-top:20px;
+  border:0;
+  border-radius:9px;
+  color:white;
+  background:linear-gradient(100deg,#286be0,#258fc7);
+  font:700 12px "DM Sans",sans-serif;
+  cursor:pointer;
+}
+
+.submit:hover {
+  filter:brightness(1.08);
+}
+
+.hint {
+  color:#9aa6b5;
+  font-size:9px;
+  margin-top:8px;
+}
+
+.right-col {
+  display:grid;
+  gap:18px;
+}
+
+.result-body {
+  padding:20px;
+}
+
+.empty {
+  text-align:center;
+  padding:25px 8px;
+}
+
+.empty-icon {
+  font-size:30px;
+  margin-bottom:12px;
+}
+
+.empty p {
+  color:#8794a6;
+  font-size:11px;
+  line-height:1.6;
+}
+
+.result-banner {
+  border-radius:11px;
+  background:linear-gradient(120deg,#122b4a,#1e4d76);
+  padding:18px;
+  color:white;
+}
+
+.train-number {
+  font:700 14px "Manrope",sans-serif;
+  color:#c6e6ff;
+  margin-bottom:12px;
+}
+
+.result-banner small {
+  color:#afc4db;
+  font-size:10px;
+}
+
+.eta-time {
+  font:800 25px "Manrope",sans-serif;
+  margin:7px 0;
+}
+
+.result-meta {
+  color:#d2dfec;
+  font-size:10px;
+  line-height:1.8;
+}
+
+.result-grid {
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+  margin-top:12px;
+}
+
+.result-metric {
+  border:1px solid var(--line);
+  padding:13px;
+  border-radius:9px;
+}
+
+.result-metric span {
+  display:block;
+  color:#8794a6;
+  font-size:10px;
+}
+
+.result-metric strong {
+  display:block;
+  font:700 16px "Manrope",sans-serif;
+  margin-top:6px;
+  color:#243b59;
+}
+
+.status-tag {
+  display:inline-block;
+  margin-top:12px;
+  padding:7px 12px;
+  border-radius:20px;
+  background:#e5f7ed;
+  color:#16865b;
+  font-size:11px;
+  font-weight:700;
+}
+
+.error {
+  margin:15px 21px 0;
+  background:#fff0f0;
+  color:#a52a2a;
+  padding:11px 13px;
+  border-radius:8px;
+  font-size:11px;
+}
+
+.model-body {
+  padding:17px 20px;
+}
+
+.metric-line {
+  display:flex;
+  justify-content:space-between;
+  gap:10px;
+  padding:9px 0;
+  border-bottom:1px solid #f0f3f7;
+  font-size:11px;
+}
+
+.metric-line span {
+  color:#8290a2;
+}
+
+.metric-line strong {
+  color:#263c59;
+}
+
+.chart-link {
+  display:block;
+  margin-top:12px;
+  color:#3478f6;
+  font-size:10px;
+  text-decoration:none;
+  font-weight:700;
+}
+
+.footer {
+  color:#9aa6b5;
+  font-size:10px;
+  text-align:center;
+  margin-top:24px;
+  line-height:1.6;
+}
+
+@media(max-width:1050px) {
+  .layout { grid-template-columns:205px 1fr; }
+  main { padding:24px 22px; }
+  .content-grid { grid-template-columns:1fr; }
+}
+
+@media(max-width:700px) {
+  .layout { display:block; }
+  aside { padding:14px 16px; }
+  .nav-label,.nav-item,.side-note { display:none; }
+  main { padding:22px 14px 30px; }
+  .profile { display:none; }
+  .stats { grid-template-columns:1fr; }
+  .fields { grid-template-columns:1fr; }
+  .field.full { grid-column:auto; }
+}
+</style>
+</head>
+
+<body>
+
+<div class="layout">
+
+<aside>
+  <div class="brand">
+    <div class="logo">🚆</div>
+    <div>
+      <div class="brand-name">RailPulse AI</div>
+      <div class="brand-sub">INTELLIGENT RAIL SYSTEM</div>
+    </div>
+  </div>
+
+  <div class="nav-label">WORKSPACE</div>
+  <div class="nav-item active">▦ &nbsp; ETA Dashboard</div>
+  <div class="nav-item">◷ &nbsp; Delay Forecast</div>
+  <div class="nav-item">▤ &nbsp; Model Evaluation</div>
+
+  <div class="nav-label" style="margin-top:28px">PROJECT</div>
+  <div class="nav-item">⚙ &nbsp; XGBoost Engine</div>
+
+  <div class="side-note">
+    <strong>Prototype environment</strong>
+    <p>This academic prototype uses a trained XGBoost model. Connect verified railway data for operational use.</p>
+  </div>
+
+  <a class="logout" href="{{ url_for('logout') }}">🚪 Logout</a>
+</aside>
+
+<main>
+
+  <div class="topbar">
+    <div>
+      <div class="eyebrow">AI-powered railway analytics</div>
+      <h1>Train ETA Prediction</h1>
+      <div class="subtitle">Forecast arrival time and expected delay from journey conditions.</div>
+    </div>
+    <div class="profile">AI &nbsp; Project Demonstration</div>
+  </div>
+
+  <div class="status-strip">
+    🟢 &nbsp; <strong>Prediction engine ready</strong> · Enter journey details to generate an estimate.
+  </div>
+
+  <section class="stats">
+    <div class="stat">
+      <div class="stat-label">Prediction algorithm</div>
+      <div class="stat-value">XGBoost</div>
+      <div class="stat-foot">Gradient-boosted decision trees</div>
+    </div>
+
+    <div class="stat">
+      <div class="stat-label">Model input features</div>
+      <div class="stat-value">09</div>
+      <div class="stat-foot">Journey and operating conditions</div>
+    </div>
+
+    <div class="stat">
+      <div class="stat-label">Prediction target</div>
+      <div class="stat-value">Delay</div>
+      <div class="stat-foot">Estimated delay in minutes</div>
+    </div>
+  </section>
+
+  <section class="content-grid">
+
+    <div class="card">
+
+      <div class="card-head">
+        <div>
+          <div class="card-title">Journey information</div>
+          <div class="card-desc">Provide current train and operating details</div>
+        </div>
+        <span class="pill">INPUT DATA</span>
+      </div>
+
+      {% if error %}
+      <div class="error">{{ error }}</div>
+      {% endif %}
+
+      <form method="POST">
+
+        <div class="section-label">Train schedule</div>
+
+        <div class="fields">
+
+          <div class="field">
+            <label>Train number</label>
+            <input type="text"
+                   name="train_number"
+                   placeholder="e.g. 12627"
+                   required
+                   value="{{ request.form.get('train_number','') }}">
+          </div>
+
+          <div class="field">
+            <label>Scheduled arrival date & time</label>
+            <input type="datetime-local"
+                   name="scheduled_arrival"
+                   required
+                   value="{{ request.form.get('scheduled_arrival','') }}">
+          </div>
+
+          <div class="field">
+            <label>Distance to destination (km)</label>
+            <input type="number"
+                   name="distance_km"
+                   min="0"
+                   step="0.1"
+                   placeholder="e.g. 250"
+                   required
+                   value="{{ request.form.get('distance_km','') }}">
+          </div>
+
+          <div class="field">
+            <label>Remaining stops</label>
+            <input type="number"
+                   name="remaining_stops"
+                   min="0"
+                   placeholder="e.g. 5"
+                   required
+                   value="{{ request.form.get('remaining_stops','') }}">
+          </div>
+
+        </div>
+
+        <div class="section-label" style="margin-top:22px">
+          Dynamic operating conditions
+        </div>
+
+        <div class="fields">
+
+          <div class="field">
+            <label>Previous station delay (minutes)</label>
+            <input type="number"
+                   name="previous_delay_min"
+                   min="0"
+                   step="0.1"
+                   placeholder="e.g. 12"
+                   required
+                   value="{{ request.form.get('previous_delay_min','') }}">
+          </div>
+
+          <div class="field">
+            <label>Weather severity</label>
+            <select name="weather_severity">
+              <option value="0" {% if request.form.get('weather_severity','0') == '0' %}selected{% endif %}>Normal</option>
+              <option value="1" {% if request.form.get('weather_severity') == '1' %}selected{% endif %}>Mild</option>
+              <option value="2" {% if request.form.get('weather_severity') == '2' %}selected{% endif %}>Moderate</option>
+              <option value="3" {% if request.form.get('weather_severity') == '3' %}selected{% endif %}>Severe</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label>Railway congestion index (0–10)</label>
+            <input type="number"
+                   name="congestion_index"
+                   min="0"
+                   max="10"
+                   step="0.1"
+                   placeholder="0 to 10"
+                   required
+                   value="{{ request.form.get('congestion_index','') }}">
+          </div>
+
+          <div class="field">
+            <label>Train category</label>
+            <select name="train_type_code">
+              <option value="0" {% if request.form.get('train_type_code','0') == '0' %}selected{% endif %}>Express</option>
+              <option value="1" {% if request.form.get('train_type_code') == '1' %}selected{% endif %}>Superfast</option>
+              <option value="2" {% if request.form.get('train_type_code') == '2' %}selected{% endif %}>Passenger</option>
+              <option value="3" {% if request.form.get('train_type_code') == '3' %}selected{% endif %}>Rajdhani</option>
+              <option value="4" {% if request.form.get('train_type_code') == '4' %}selected{% endif %}>Other</option>
+            </select>
+          </div>
+
+        </div>
+
+        <button class="submit" type="submit">
+          ✦ &nbsp; Generate ETA Prediction
+        </button>
+
+        <div class="hint">
+          The model predicts delay using the journey features supplied above.
+        </div>
+
+      </form>
+    </div>
+
+    <div class="right-col">
+
+      <div class="card">
+
+        <div class="card-head">
+          <div>
+            <div class="card-title">Prediction result</div>
+            <div class="card-desc">Model-generated arrival estimate</div>
+          </div>
+          <span class="pill">OUTPUT</span>
+        </div>
+
+        <div class="result-body">
+
+          {% if result %}
+
+          <div class="result-banner">
+
+            <div class="train-number">
+              🚆 TRAIN NUMBER: {{ result.train_number }}
+            </div>
+
+            <small>ESTIMATED ARRIVAL TIME</small>
+
+            <div class="eta-time">
+              {{ result.estimated_arrival }}
+            </div>
+
+            <div class="result-meta">
+              Scheduled arrival: {{ result.scheduled_arrival }}
+            </div>
+
+          </div>
+
+          <div class="result-grid">
+
+            <div class="result-metric">
+              <span>Predicted delay</span>
+              <strong>{{ result.predicted_delay }} min</strong>
+            </div>
+
+            <div class="result-metric">
+              <span>Train status</span>
+              <strong>{{ result.status }}</strong>
+            </div>
+
+          </div>
+
+          <span class="status-tag">
+            {{ result.status }}
+          </span>
+
+          {% else %}
+
+          <div class="empty">
+            <div class="empty-icon">⏱️</div>
+            <strong>Awaiting journey details</strong>
+            <p>Complete the form and select Generate ETA Prediction to view the train number, estimated arrival time and delay.</p>
+          </div>
+
+          {% endif %}
+
+        </div>
+      </div>
+
+      <div class="card">
+
+        <div class="card-head">
+          <div>
+            <div class="card-title">Model performance</div>
+            <div class="card-desc">Evaluation on held-out test data</div>
+          </div>
+          <span class="pill">METRICS</span>
+        </div>
+
+        <div class="model-body">
+
+          {% if metrics %}
+
+          <div class="metric-line">
+            <span>Mean Absolute Error (MAE)</span>
+            <strong>{{ metrics.mae_minutes }} min</strong>
+          </div>
+
+          <div class="metric-line">
+            <span>Root Mean Squared Error</span>
+            <strong>{{ metrics.rmse_minutes }} min</strong>
+          </div>
+
+          <div class="metric-line">
+            <span>R² score</span>
+            <strong>{{ metrics.r2_score }}</strong>
+          </div>
+
+          <div class="metric-line">
+            <span>Test records</span>
+            <strong>{{ metrics.test_rows }}</strong>
+          </div>
+
+          <a class="chart-link"
+             href="{{ url_for('static', filename='actual_vs_predicted.png') }}"
+             target="_blank">
+            View actual vs predicted graph ↗
+          </a>
+
+          {% else %}
+
+          <p>Model metrics are not available. Run python train_model.py.</p>
+
+          {% endif %}
+
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <div class="footer">
+    RAILPULSE AI · Academic implementation prototype · XGBoost Regression<br>
+    Predictions are estimates, not official live railway information.
+  </div>
+
+</main>
+</div>
+
+</body>
+</html>

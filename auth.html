@@ -1,0 +1,112 @@
+ 
+<!DOCTYPE html>
+<html>
+<head>
+    <title>RailPulse AI - Login</title>
+    <style>
+        body {
+            font-family: Arial;
+            background: #10233f;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+
+        .container {
+            background: white;
+            padding: 35px;
+            width: 330px;
+            border-radius: 15px;
+            text-align: center;
+        }
+
+        h2 {
+            color: #173f65;
+        }
+
+        input {
+            width: 90%;
+            padding: 12px;
+            margin: 10px 0;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+        }
+
+        button {
+            background: #286be0;
+            color: white;
+            padding: 12px;
+            width: 100%;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+
+        a {
+            color: #286be0;
+            text-decoration: none;
+        }
+    </style>
+</head>
+
+<body>
+<div class="container">
+
+    <h2>🚆 RailPulse AI</h2>
+
+    {% if mode == 'register' %}
+        <h3>Create Account</h3>
+    {% else %}
+        <h3>Login</h3>
+    {% endif %}
+
+    {% with messages = get_flashed_messages() %}
+        {% for message in messages %}
+            <p style="color:red">{{ message }}</p>
+        {% endfor %}
+    {% endwith %}
+
+    <form method="POST">
+
+        <input type="text"
+               name="identifier"
+               placeholder="Email or Phone Number"
+               required>
+
+        <input type="password"
+               name="password"
+               placeholder="Password (minimum 7 characters)"
+               required>
+
+        {% if mode == 'register' %}
+            <input type="password"
+                   name="confirm_password"
+                   placeholder="Confirm Password"
+                   required>
+        {% endif %}
+
+        <button type="submit">
+            {% if mode == 'register' %}
+                Create Account
+            {% else %}
+                Login
+            {% endif %}
+        </button>
+
+    </form>
+
+    {% if mode == 'register' %}
+        <p>Already have an account?
+            <a href="/login">Login</a>
+        </p>
+    {% else %}
+        <p>New user?
+            <a href="/register">Create Account</a>
+        </p>
+    {% endif %}
+
+</div>
+</body>
+</html>
